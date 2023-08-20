@@ -6,9 +6,8 @@ template <typename T>
 class Queue {
 private:
 	struct Node {
-		std::shared_ptr<T> data;
-		Node* next;
-		Node(T data_) : data(data_) {}
+		std::shared_ptr<T> data = nullptr;
+		Node* next = nullptr;
 	};
 	std::mutex head_mutex;
 	Node* head;
@@ -84,13 +83,42 @@ public:
 		return res;
 	}
 
+	bool try_pop(T& value) {
+		Node* const old_head = try_pop_head(value);
+		if (!old_head) {
+			return false;
+		}
+		delete old_head;
+		return true;
+	}
+
+	std::shared_ptr<T> wait_and_pop() {
+		Node* const old_head = wait_pop_head();
+		std::shared_ptr<T> const res(old_head->data);
+		delete old_head;
+		return res;
+	}
+
+	void wait_and_pop(T& value) {
+		Node* const old_head = wait_pop_head(value);
+		delete old_head;
+	}
+
 	void push(T new_value) {
-		std::shared_ptr<T> new_data(new T(new_value));
+		std::shared_ptr<T> new_head(new T(new_value));
 		std::unique_ptr<Node> p(new Node);
-		std::lock_guard<std::mutex> tail_lock(tail_mutex);
-		tail->data = new_data;
-		tail->next = p.get();
-		tail = p.release();
+		{
+			std::lock_guard<std::mutex> tail_lock(tail_mutex);
+			tail->data = new_head;
+			tail->next = p.get();
+			tail = p.release();
+		}
+		data_cond.notify_one();
+	}
+
+	void empty() {
+		std::lock_guard<std::mutex> head_lock(head_mutex);
+		return head == get_tail();
 	}
 };
 
